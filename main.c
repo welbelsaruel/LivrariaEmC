@@ -1,53 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "Includes/User.h"
 
 #define TAMANHO_LINHA 128
-
-static void escreverCampoCsv(FILE *csv, const char *campo, size_t capacidade) {
-    size_t indice;
-
-    fputc('"', csv);
-    for (indice = 0; indice < capacidade && campo[indice] != '\0'; indice++) {
-        if (campo[indice] == '"') {
-            fputc('"', csv);
-        }
-        fputc(campo[indice], csv);
-    }
-    fputc('"', csv);
-}
-
-static void exportarUsuariosCsv(void) {
-    FILE *binario = fopen("Files/user.bin", "rb");
-    FILE *csv = fopen("Files/user.csv", "w");
-    User usuario;
-
-    if (csv == NULL) {
-        puts("Nao foi possivel atualizar Files/user.csv.");
-        if (binario != NULL) {
-            fclose(binario);
-        }
-        return;
-    }
-
-    fputs("matricula,nome,curso\n", csv);
-    if (binario != NULL) {
-        while (fread(&usuario, sizeof usuario, 1, binario) == 1) {
-            escreverCampoCsv(csv, usuario.matricula, sizeof usuario.matricula);
-            fputc(',', csv);
-            escreverCampoCsv(csv, usuario.nome, sizeof usuario.nome);
-            fputc(',', csv);
-            escreverCampoCsv(csv, usuario.curso, sizeof usuario.curso);
-            fputc('\n', csv);
-        }
-        fclose(binario);
-    }
-
-    fclose(csv);
-}
 
 static int lerLinha(const char *mensagem, char *destino, size_t capacidade) {
     size_t tamanho;
@@ -74,12 +31,6 @@ static int lerLinha(const char *mensagem, char *destino, size_t capacidade) {
     return destino[0] != '\0';
 }
 
-static void mostrarUsuario(const User *usuario) {
-    printf("\nMatricula: %s\n", usuario->matricula);
-    printf("Nome: %s\n", usuario->nome);
-    printf("Curso: %s\n", usuario->curso);
-}
-
 static char minusculo(char caractere) {
     if (caractere >= 'A' && caractere <= 'Z') {
         return (char)(caractere + ('a' - 'A'));
@@ -97,9 +48,7 @@ static int contemTexto(const char *texto, const char *trecho) {
         return 0;
     }
 
-    for (indiceTexto = 0;
-         indiceTexto + tamanhoTrecho <= tamanhoTexto;
-         indiceTexto++) {
+    for (indiceTexto = 0; indiceTexto + tamanhoTrecho <= tamanhoTexto; indiceTexto++) {
         for (indiceTrecho = 0; indiceTrecho < tamanhoTrecho; indiceTrecho++) {
             if (minusculo(texto[indiceTexto + indiceTrecho]) !=
                 minusculo(trecho[indiceTrecho])) {
@@ -114,14 +63,16 @@ static int contemTexto(const char *texto, const char *trecho) {
     return 0;
 }
 
-static void buscarNomes(void) {
+static void buscarNomes(const char *descricao, int campo) {
     char trecho[sizeof(((User *)0)->nome)];
     FILE *arquivo;
     User usuario;
+    const char *valorUsuario;
     int encontrados = 0;
 
-    puts("\n--- Buscar por nome ---");
-    if (!lerLinha("Digite parte do nome: ", trecho, sizeof trecho)) {
+    printf("\n--- Buscar por %s ---\n", descricao);
+    printf("Digite parte do %s: ", descricao);
+    if (!lerLinha("", trecho, sizeof trecho)) {
         return;
     }
 
@@ -132,10 +83,21 @@ static void buscarNomes(void) {
     }
 
     while (fread(&usuario, sizeof usuario, 1, arquivo) == 1) {
+        usuario.matricula[sizeof usuario.matricula - 1] = '\0';
         usuario.nome[sizeof usuario.nome - 1] = '\0';
-        if (contemTexto(usuario.nome, trecho)) {
-            printf("Nome: %s | Matricula: %s\n",
-                   usuario.nome, usuario.matricula);
+        usuario.curso[sizeof usuario.curso - 1] = '\0';
+
+        if (campo == 1) {
+            valorUsuario = usuario.matricula;
+        } else if (campo == 2) {
+            valorUsuario = usuario.nome;
+        } else {
+            valorUsuario = usuario.curso;
+        }
+
+        if (contemTexto(valorUsuario, trecho)) {
+            printf("%s: %s | Matricula: %s\n",
+                   descricao, valorUsuario, usuario.matricula);
             encontrados++;
         }
     }
@@ -150,13 +112,10 @@ static void buscarNomes(void) {
 
 static void menuBuscar(void) {
     char opcao[TAMANHO_LINHA];
-    char valor[100];
-    User usuario;
-    FuncaoBuscaUser funcaoBusca = NULL;
 
     puts("\n--- Buscar usuario ---");
     puts("1 - Por matricula");
-    puts("2 - Por nome (aceita parte do nome)");
+    puts("2 - Por nome");
     puts("3 - Por curso");
     puts("0 - Voltar");
 
@@ -165,25 +124,17 @@ static void menuBuscar(void) {
     }
 
     if (strcmp(opcao, "1") == 0) {
-        funcaoBusca = buscarUMatricula;
+        buscarNomes("matricula", 1);
+        return;
     } else if (strcmp(opcao, "2") == 0) {
-        buscarNomes();
+        buscarNomes("nome", 2);
         return;
     } else if (strcmp(opcao, "3") == 0) {
-        funcaoBusca = buscarUCurso;
+        buscarNomes("curso", 3);
+        return;
     } else {
         puts("Opcao invalida.");
         return;
-    }
-
-    if (!lerLinha("Valor: ", valor, sizeof valor)) {
-        return;
-    }
-
-    if (buscarUser(valor, &usuario, funcaoBusca)) {
-        mostrarUsuario(&usuario);
-    } else {
-        puts("Usuario nao encontrado.");
     }
 }
 
@@ -197,7 +148,6 @@ static void excluirUsuario(void) {
 
     if (removerUser(matricula)) {
         puts("Usuario excluido com sucesso!");
-        exportarUsuariosCsv();
     } else {
         puts("Usuario nao encontrado ou nao foi possivel exclui-lo.");
     }
@@ -205,8 +155,6 @@ static void excluirUsuario(void) {
 
 int main(void) {
     char opcao[TAMANHO_LINHA];
-
-    exportarUsuariosCsv();
 
     for (;;) {
         puts("\n========== LIVRARIA ==========");
@@ -234,7 +182,6 @@ int main(void) {
                 lerLinha("Curso: ", usuario.curso, sizeof usuario.curso)) {
                 if (criarUser(usuario)) {
                     puts("Usuario criado com sucesso!");
-                    exportarUsuariosCsv();
                 } else {
                     puts("Nao foi possivel criar o usuario. A matricula pode ja existir.");
                 }
