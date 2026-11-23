@@ -6,13 +6,27 @@
 #define USER_BIN "Files/user.bin"
 
 int criarUser(User user) {
+    FILE *arquivo;
     User existente;
+
     if (memchr(user.matricula, '\0', sizeof user.matricula) == NULL ||
-        buscarUMatricula(user.matricula, &existente)) {
+        user.matricula[0] == '\0') {
         return 0;
     }
 
-    FILE *arquivo = fopen(USER_BIN, "ab");
+    arquivo = fopen(USER_BIN, "rb");
+    if (arquivo != NULL) {
+        while (fread(&existente, sizeof existente, 1, arquivo) == 1) {
+            existente.matricula[sizeof existente.matricula - 1] = '\0';
+            if (strcmp(user.matricula, existente.matricula) == 0) {
+                fclose(arquivo);
+                return 0;
+            }
+        }
+        fclose(arquivo);
+    }
+
+    arquivo = fopen(USER_BIN, "ab");
     if (arquivo == NULL) {
         return 0;
     }
