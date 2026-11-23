@@ -2,15 +2,27 @@
 #define USER_H
 
 typedef struct {
+    char matricula[11];
     char nome[100];
-    int matricula;  
-    char curso[50];
+    char curso[100];
 } User;
 
-void BuscarUsuario(const char *nome, User *usuario);
+int criarUser(User user);
 
-void Inserir_Pessoa();
+/* As buscas retornam 1 e preenchem pessoa com a primeira correspondencia. */
+int buscarUMatricula(const char *matricula, User *pessoa);
+int buscarUNome(const char *nome, User *pessoa);
+int buscarUCurso(const char *curso, User *pessoa);
 
-void Remover_Pessoa();
+typedef int (*FuncaoBuscaUser)(const char *valor, User *pessoa);
+
+/* Passe buscarUMatricula, buscarUNome ou buscarUCurso como funcaoBusca. */
+int buscarUser(const char *valor, User *pessoa, FuncaoBuscaUser funcaoBusca);
+
+/* Remove a primeira correspondencia pela matricula. */
+int removerUser(const char *matricula);
+
+/* Zera a struct fornecida pelo chamador. */
+void liberarUser(User *user);
 
 #endif
