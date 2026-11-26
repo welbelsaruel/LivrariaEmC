@@ -1,2 +1,13 @@
 # LivrariaEmC
-O projeto aborda temas como modularização, leitura e escrita de arquivos e pseudo orientção a objetos usando a linguagem C
+O projeto leva em consideração alguns entendimentos e implementações dos assuntos apresentados em aula.
+-DOCUMENTAÇÃO {
+
+        -DURANTE O CÓDIGO, SERVE PARA SITUAR O PROGRAMADOR SOBRE AS FUNCIONALIDADES DO PROGRAMA E REGRAS DE NEGÓCIO QUE A SOLUÇÃO SEGUE.
+        -SERVE PARA CONTROLE DE VERSÃO, MOSTRANDO AS MUDANÇAS DE FUNCIONALIDADE DA VERSÃO ATUAL PARA A ANTIGA.
+        -MOSTRA O QUE O PROGRAMA FAZ E COMO FAZ, APRESENTA COMO UTILIZAR O PROGRAMA.
+
+              }
+
+FUNCIONALIDADES {
+
+                }

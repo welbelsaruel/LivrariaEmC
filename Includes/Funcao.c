@@ -185,8 +185,16 @@ int CRIAR(const TipoRegistro *t, const void *registro) {
     int ok = carregar(f, t, &r, &n), resultado = -1;
     fclose(f);
     if (ok) {
-        for (size_t i = 0; i < n; i++)
-            if (!strcmp(texto(t, r[i], t->chave), texto(t, registro, t->chave))) { resultado = 0; ok = 0; break; }
+        /* A chave e unica dentro da base, independentemente do nome.
+           Em duplicidade, nao regrava o arquivo nem altera o registro existente. */
+        const char *chave = texto(t, registro, t->chave);
+        for (size_t i = 0; i < n; i++) {
+            if (strcmp(texto(t, r[i], t->chave), chave) == 0) {
+                resultado = 0;
+                ok = 0;
+                break;
+            }
+        }
     }
     if (ok && n < (size_t)-1 / sizeof(void *) - 1) {
         void **novo = realloc(r, (n + 1) * sizeof(void *));

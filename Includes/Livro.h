@@ -3,9 +3,9 @@
 #include "Funcao.h"
 
 typedef struct {
-    char matricula[11];
+    char codigo[11];
     char *nome;
-    char *curso;
+    char *autor;
     int quantidade;
 } Livro;
 
