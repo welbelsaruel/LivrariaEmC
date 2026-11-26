@@ -31,6 +31,38 @@ static int lerLinha(const char *mensagem, char *destino, size_t capacidade) {
     return destino[0] != '\0';
 }
 
+static int lerLinhaDinamica(const char *mensagem, char **destino) {
+    size_t capacidade = 32, tamanho = 0;
+    char *texto = malloc(capacidade);
+    int caractere;
+    fputs(mensagem, stdout);
+    fflush(stdout);
+    if (texto == NULL) return 0;
+    while ((caractere = getchar()) != '\n' && caractere != EOF) {
+        if (tamanho == capacidade - 1) {
+            char *novo = NULL;
+            if (capacidade <= (size_t)-1 / 2)
+                novo = realloc(texto, capacidade * 2);
+            if (novo == NULL) {
+                free(texto);
+                while ((caractere = getchar()) != '\n' && caractere != EOF) {}
+                return 0;
+            }
+            texto = novo;
+            capacidade *= 2;
+        }
+        texto[tamanho++] = (char)caractere;
+    }
+    if (tamanho == 0 || ferror(stdin)) {
+        free(texto);
+        return 0;
+    }
+    texto[tamanho] = '\0';
+    char *ajustado = realloc(texto, tamanho + 1);
+    *destino = ajustado != NULL ? ajustado : texto;
+    return 1;
+}
+
 static char minusculo(char caractere) {
     if (caractere >= 'A' && caractere <= 'Z') {
         return (char)(caractere + ('a' - 'A'));
@@ -63,51 +95,35 @@ static int contemTexto(const char *texto, const char *trecho) {
     return 0;
 }
 
-static void buscarNomes(const char *descricao, int campo) {
-    char trecho[sizeof(((User *)0)->nome)];
-    FILE *arquivo;
-    User usuario;
-    const char *valorUsuario;
-    int encontrados = 0;
+typedef struct {
+    const char *descricao;
+    const char *trecho;
+    int campo;
+    size_t encontrados;
+} ContextoBusca;
 
+static int mostrarCorrespondencia(const void *registro, void *contexto) {
+    const User *usuario = registro;
+    ContextoBusca *busca = contexto;
+    const char *valor = busca->campo == 1 ? usuario->matricula :
+                        busca->campo == 2 ? usuario->nome : usuario->curso;
+    if (!contemTexto(valor, busca->trecho)) return 0;
+    printf("%s: %s | Matricula: %s\n", busca->descricao, valor, usuario->matricula);
+    busca->encontrados++;
+    return 1;
+}
+
+static void buscarNomes(const char *descricao, int campo) {
+    char *trecho = NULL;
     printf("\n--- Buscar por %s ---\n", descricao);
     printf("Digite parte do %s: ", descricao);
-    if (!lerLinha("", trecho, sizeof trecho)) {
-        return;
-    }
-
-    arquivo = fopen("Files/user.bin", "rb");
-    if (arquivo == NULL) {
-        puts("Nao foi possivel abrir a base de usuarios.");
-        return;
-    }
-
-    while (fread(&usuario, sizeof usuario, 1, arquivo) == 1) {
-        usuario.matricula[sizeof usuario.matricula - 1] = '\0';
-        usuario.nome[sizeof usuario.nome - 1] = '\0';
-        usuario.curso[sizeof usuario.curso - 1] = '\0';
-
-        if (campo == 1) {
-            valorUsuario = usuario.matricula;
-        } else if (campo == 2) {
-            valorUsuario = usuario.nome;
-        } else {
-            valorUsuario = usuario.curso;
-        }
-
-        if (contemTexto(valorUsuario, trecho)) {
-            printf("%s: %s | Matricula: %s\n",
-                   descricao, valorUsuario, usuario.matricula);
-            encontrados++;
-        }
-    }
-
-    fclose(arquivo);
-    if (encontrados == 0) {
-        puts("Nenhum usuario encontrado.");
-    } else {
-        printf("Total encontrado: %d\n", encontrados);
-    }
+    if (!lerLinhaDinamica("", &trecho)) return;
+    ContextoBusca contexto = {descricao, trecho, campo, 0};
+    int resultado = buscarUser(NULL, mostrarCorrespondencia, &contexto);
+    free(trecho);
+    if (resultado < 0) puts("Nao foi possivel ler a base de usuarios.");
+    else if (!contexto.encontrados) puts("Nenhum usuario encontrado.");
+    else printf("Total encontrado: %zu\n", contexto.encontrados);
 }
 
 static void menuBuscar(void) {
@@ -146,7 +162,7 @@ static void excluirUsuario(void) {
         return;
     }
 
-    if (removerUser(matricula)) {
+    if (removerUser(matricula) == 1) {
         puts("Usuario excluido com sucesso!");
     } else {
         puts("Usuario nao encontrado ou nao foi possivel exclui-lo.");
@@ -178,14 +194,16 @@ int main(void) {
 
             puts("\n--- Criar usuario ---");
             if (lerLinha("Matricula: ", usuario.matricula, sizeof usuario.matricula) &&
-                lerLinha("Nome: ", usuario.nome, sizeof usuario.nome) &&
-                lerLinha("Curso: ", usuario.curso, sizeof usuario.curso)) {
-                if (criarUser(usuario)) {
+                lerLinhaDinamica("Nome: ", &usuario.nome) &&
+                lerLinhaDinamica("Curso: ", &usuario.curso)) {
+                if (criarUser(usuario) == 1) {
                     puts("Usuario criado com sucesso!");
                 } else {
                     puts("Nao foi possivel criar o usuario. A matricula pode ja existir.");
                 }
             }
+            free(usuario.nome);
+            free(usuario.curso);
         } else if (strcmp(opcao, "3") == 0) {
             excluirUsuario();
         } else if (strcmp(opcao, "0") == 0) {
