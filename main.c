@@ -2,13 +2,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "Includes/User.h"
-#include "Includes/Livro.h"
+#include "Include/Aluno.h"
+#include "Include/Emprestimo.h"
+#include "Include/Livro.h"
 
-#define TAMANHO_LINHA 128
+#define TAMANHO_ENTRADA 256
 
-static int lerLinha(const char *mensagem, char *destino, size_t capacidade) {
-    size_t tamanho;
+/* Le uma entrada curta, remove a quebra de linha e rejeita texto vazio ou maior que o buffer. */
+static int lerEntrada(
+    const char *mensagem,
+    char destino[],
+    int capacidade
+) {
+    int caractere;
+    int tamanho;
 
     fputs(mensagem, stdout);
     fflush(stdout);
@@ -17,286 +24,385 @@ static int lerLinha(const char *mensagem, char *destino, size_t capacidade) {
         return 0;
     }
 
-    tamanho = strlen(destino);
+    tamanho = (int)strlen(destino);
     if (tamanho > 0 && destino[tamanho - 1] == '\n') {
         destino[tamanho - 1] = '\0';
-    } else {
-        int caractere;
+    } else if (!feof(stdin)) {
         while ((caractere = getchar()) != '\n' && caractere != EOF) {
-            /* Descarta o restante de uma entrada maior que o limite. */
         }
-        fputs("Entrada muito grande. Tente novamente.\n", stdout);
+        puts("Entrada muito grande.");
         return 0;
     }
 
-    return destino[0] != '\0';
+    if (destino[0] == '\0') {
+        puts("A entrada nao pode ficar vazia.");
+        return 0;
+    }
+
+    return 1;
 }
 
-static int lerLinhaDinamica(const char *mensagem, char **destino) {
-    size_t capacidade = 32, tamanho = 0;
+/* Converte uma sequencia de digitos em int sem aceitar negativos ou valores acima do limite. */
+static int converterQuantidade(const char *texto, int *quantidade) {
+    unsigned int valor = 0;
+    unsigned int maximo = (~0u) >> 1;
+    int indice = 0;
+
+    if (texto[0] == '\0') {
+        return 0;
+    }
+
+    while (texto[indice] != '\0') {
+        unsigned int digito;
+
+        if (texto[indice] < '0' || texto[indice] > '9') {
+            return 0;
+        }
+
+        digito = (unsigned int)(texto[indice] - '0');
+        if (valor > (maximo - digito) / 10) {
+            return 0;
+        }
+
+        valor = valor * 10 + digito;
+        indice++;
+    }
+
+    *quantidade = (int)valor;
+    return 1;
+}
+
+/* Le uma entrada de qualquer tamanho e aumenta o bloco de memoria conforme necessario. */
+static char *lerEntradaDinamica(const char *mensagem) {
+    size_t capacidade = 32;
+    size_t tamanho = 0;
     char *texto = malloc(capacidade);
     int caractere;
+
     fputs(mensagem, stdout);
     fflush(stdout);
-    if (texto == NULL) return 0;
+
+    if (texto == NULL) {
+        return NULL;
+    }
+
     while ((caractere = getchar()) != '\n' && caractere != EOF) {
-        if (tamanho == capacidade - 1) {
-            char *novo = NULL;
-            if (capacidade <= (size_t)-1 / 2)
-                novo = realloc(texto, capacidade * 2);
-            if (novo == NULL) {
+        if (tamanho + 1 >= capacidade) {
+            size_t novaCapacidade;
+            char *novoTexto;
+
+            if (capacidade > (size_t)-1 / 2) {
                 free(texto);
-                while ((caractere = getchar()) != '\n' && caractere != EOF) {}
-                return 0;
+                return NULL;
             }
-            texto = novo;
-            capacidade *= 2;
+
+            novaCapacidade = capacidade * 2;
+            novoTexto = realloc(texto, novaCapacidade);
+            if (novoTexto == NULL) {
+                free(texto);
+                return NULL;
+            }
+
+            texto = novoTexto;
+            capacidade = novaCapacidade;
         }
-        texto[tamanho++] = (char)caractere;
+
+        texto[tamanho] = (char)caractere;
+        tamanho++;
     }
-    if (tamanho == 0 || ferror(stdin)) {
+
+    if (caractere == EOF && tamanho == 0) {
         free(texto);
-        return 0;
+        return NULL;
     }
+
+    if (tamanho == 0) {
+        puts("A entrada nao pode ficar vazia.");
+        free(texto);
+        return NULL;
+    }
+
     texto[tamanho] = '\0';
-    char *ajustado = realloc(texto, tamanho + 1);
-    *destino = ajustado != NULL ? ajustado : texto;
-    return 1;
-}
 
-static char minusculo(char caractere) {
-    if (caractere >= 'A' && caractere <= 'Z') {
-        return (char)(caractere + ('a' - 'A'));
-    }
-    return caractere;
-}
-
-static int contemTexto(const char *texto, const char *trecho) {
-    size_t indiceTexto;
-    size_t indiceTrecho;
-    size_t tamanhoTexto = strlen(texto);
-    size_t tamanhoTrecho = strlen(trecho);
-
-    if (tamanhoTrecho == 0 || tamanhoTrecho > tamanhoTexto) {
-        return 0;
-    }
-
-    for (indiceTexto = 0; indiceTexto + tamanhoTrecho <= tamanhoTexto; indiceTexto++) {
-        for (indiceTrecho = 0; indiceTrecho < tamanhoTrecho; indiceTrecho++) {
-            if (minusculo(texto[indiceTexto + indiceTrecho]) !=
-                minusculo(trecho[indiceTrecho])) {
-                break;
-            }
-        }
-        if (indiceTrecho == tamanhoTrecho) {
-            return 1;
+    {
+        char *textoAjustado = realloc(texto, tamanho + 1);
+        if (textoAjustado != NULL) {
+            texto = textoAjustado;
         }
     }
 
-    return 0;
+    return texto;
 }
 
-typedef struct {
-    const char *descricao;
-    const char *trecho;
-    int campo;
-    size_t encontrados;
-} ContextoBusca;
+/* Coleta os dados dinamicamente, solicita a insercao e libera toda a memoria reservada. */
+static void inserirNovoAluno(void) {
+    Aluno aluno = {NULL, NULL, NULL};
+    int resultado;
 
-static int mostrarCorrespondencia(const void *registro, void *contexto) {
-    const User *usuario = registro;
-    ContextoBusca *busca = contexto;
-    const char *valor = busca->campo == 1 ? usuario->matricula :
-                        busca->campo == 2 ? usuario->nome : usuario->curso;
-    if (!contemTexto(valor, busca->trecho)) return 0;
-    printf("%s: %s | Matricula: %s\n", busca->descricao, valor, usuario->matricula);
-    busca->encontrados++;
-    return 1;
-}
-
-static void buscarNomes(const char *descricao, int campo) {
-    char *trecho = NULL;
-    printf("\n--- Buscar por %s ---\n", descricao);
-    printf("Digite parte do %s: ", descricao);
-    if (!lerLinhaDinamica("", &trecho)) return;
-    ContextoBusca contexto = {descricao, trecho, campo, 0};
-    int resultado = buscarUser(NULL, mostrarCorrespondencia, &contexto);
-    free(trecho);
-    if (resultado < 0) puts("Nao foi possivel ler a base de usuarios.");
-    else if (!contexto.encontrados) puts("Nenhum usuario encontrado.");
-    else printf("Total encontrado: %zu\n", contexto.encontrados);
-}
-
-static void menuBuscar(void) {
-    char opcao[TAMANHO_LINHA];
-
-    puts("\n--- Buscar usuario ---");
-    puts("1 - Por matricula");
-    puts("2 - Por nome");
-    puts("3 - Por curso");
-    puts("0 - Voltar");
-
-    if (!lerLinha("Opcao: ", opcao, sizeof opcao) || strcmp(opcao, "0") == 0) {
-        return;
+    aluno.matricula = lerEntradaDinamica("Matricula: ");
+    if (aluno.matricula != NULL) {
+        aluno.nome = lerEntradaDinamica("Nome: ");
+    }
+    if (aluno.nome != NULL) {
+        aluno.turma = lerEntradaDinamica("Turma: ");
     }
 
-    if (strcmp(opcao, "1") == 0) {
-        buscarNomes("matricula", 1);
-        return;
-    } else if (strcmp(opcao, "2") == 0) {
-        buscarNomes("nome", 2);
-        return;
-    } else if (strcmp(opcao, "3") == 0) {
-        buscarNomes("curso", 3);
-        return;
+    if (aluno.matricula == NULL
+        || aluno.nome == NULL
+        || aluno.turma == NULL) {
+        puts("Cadastro cancelado.");
     } else {
-        puts("Opcao invalida.");
-        return;
-    }
-}
+        resultado = inserirAluno(&aluno);
 
-static void excluirUsuario(void) {
-    char matricula[sizeof(((User *)0)->matricula)];
-
-    puts("\n--- Excluir usuario ---");
-    if (!lerLinha("Matricula: ", matricula, sizeof matricula)) {
-        return;
-    }
-
-    if (removerUser(matricula) == 1) {
-        puts("Usuario excluido com sucesso!");
-    } else {
-        puts("Usuario nao encontrado ou nao foi possivel exclui-lo.");
-    }
-}
-
-static int mostrarLivro(const void *registro, void *contexto) {
-    const Livro *livro = registro;
-    ContextoBusca *busca = contexto;
-    const char *valor = busca->campo == 1 ? livro->codigo :
-                        busca->campo == 2 ? livro->nome : livro->autor;
-    if (!contemTexto(valor, busca->trecho)) return 0;
-    printf("Nome: %s | Matricula: %s | Curso: %s | Quantidade: %d\n",
-           livro->nome, livro->codigo, livro->autor, livro->quantidade);
-    busca->encontrados++;
-    return 1;
-}
-
-static void menuBuscarLivro(void) {
-    char opcao[TAMANHO_LINHA];
-    puts("\n--- Buscar livro ---");
-    puts("1 - Por codigo");
-    puts("2 - Por nome");
-    puts("3 - Por autor");
-    puts("0 - Voltar");
-    if (!lerLinha("Opcao: ", opcao, sizeof opcao) || !strcmp(opcao, "0")) return;
-    int campo;
-    if (!strcmp(opcao, "1")) campo = 1;
-    else if (!strcmp(opcao, "2")) campo = 2;
-    else if (!strcmp(opcao, "3")) campo = 3;
-    else { puts("Opcao invalida."); return; }
-    const char *descricao = campo == 1 ? "matricula" : campo == 2 ? "nome" : "curso";
-    char *trecho = NULL;
-    printf("Digite parte do %s: ", descricao);
-    if (!lerLinhaDinamica("", &trecho)) return;
-    ContextoBusca contexto = {descricao, trecho, campo, 0};
-    int resultado = buscarLivro(NULL, mostrarLivro, &contexto);
-    free(trecho);
-    if (resultado < 0) puts("Nao foi possivel ler a base de livros.");
-    else if (!contexto.encontrados) puts("Nenhum livro encontrado.");
-    else printf("Total encontrado: %zu\n", contexto.encontrados);
-}
-
-static void cadastrarLivro(void) {
-    Livro livro = {0};
-    char entrada[TAMANHO_LINHA];
-    puts("\n--- Criar livro ---");
-    if (!lerLinha("Codigo: ", livro.codigo, sizeof livro.codigo) ||
-        !lerLinhaDinamica("Nome: ", &livro.nome) ||
-        !lerLinhaDinamica("Autor: ", &livro.autor) ||
-        !lerLinha("Quantidade: ", entrada, sizeof entrada)) goto fim;
-    /* Converte somente digitos e verifica o limite antes de multiplicar. */
-    unsigned int quantidade = 0;
-    const unsigned int maximo = (~0u) >> 1;
-    for (size_t i = 0; entrada[i]; i++) {
-        if (entrada[i] < '0' || entrada[i] > '9' ||
-            quantidade > (maximo - (unsigned int)(entrada[i] - '0')) / 10) {
-            puts("Quantidade invalida. Digite um inteiro nao negativo dentro do limite de int.");
-            goto fim;
+        if (resultado == 1) {
+            puts("Aluno inserido com sucesso.");
+        } else if (resultado == 0) {
+            puts("Nao foi possivel inserir o aluno: a matricula ja existe.");
+        } else {
+            puts("Nao foi possivel inserir o aluno.");
         }
-        quantidade = quantidade * 10 + (unsigned int)(entrada[i] - '0');
     }
-    livro.quantidade = (int)quantidade;
-    int resultado = criarLivro(livro);
-    if (resultado == 1) puts("Livro criado com sucesso!");
-    else if (resultado == 0) puts("Ja existe um livro com esse codigo.");
-    else puts("Nao foi possivel gravar o livro.");
-fim:
-    free(livro.nome);
-    free(livro.autor);
+
+    free(aluno.matricula);
+    free(aluno.nome);
+    free(aluno.turma);
 }
 
-static void excluirLivro(void) {
-    char matricula[sizeof(((Livro *)0)->codigo)];
-    puts("\n--- Excluir livro ---");
-    if (!lerLinha("Matricula: ", matricula, sizeof matricula)) return;
-    int resultado = removerLivro(matricula);
-    if (resultado == 1) puts("Livro excluido com sucesso!");
-    else if (resultado == 0) puts("Livro nao encontrado.");
-    else puts("Nao foi possivel excluir o livro.");
+/* Solicita uma matricula e informa o resultado da remocao do aluno. */
+static void excluirAluno(void) {
+    char matricula[TAMANHO_ENTRADA];
+    int resultado;
+
+    if (!lerEntrada("Matricula: ", matricula, TAMANHO_ENTRADA)) {
+        return;
+    }
+
+    resultado = removerAluno(matricula);
+    if (resultado == 1) {
+        puts("Aluno removido com sucesso.");
+    } else if (resultado == 0) {
+        puts("Aluno nao encontrado.");
+    } else {
+        puts("Nao foi possivel remover o aluno.");
+    }
 }
 
-int main(void) {
-    char opcao[TAMANHO_LINHA];
+/* Exibe as operacoes de aluno e direciona a opcao escolhida para o modulo adequado. */
+static void menuAlunos(void) {
+    char opcao[TAMANHO_ENTRADA];
 
-    for (;;) {
-        puts("\n========== LIVRARIA ==========");
-        puts("1 - Buscar usuario");
-        puts("2 - Criar usuario");
-        puts("3 - Excluir usuario");
-        puts("4 - Buscar livro");
-        puts("5 - Criar livro");
-        puts("6 - Excluir livro");
-        puts("0 - Sair");
+    while (1) {
+        puts("\n--- ALUNOS ---");
+        puts("1 - Inserir");
+        puts("2 - Buscar por nome");
+        puts("3 - Buscar por matricula");
+        puts("4 - Remover");
+        puts("0 - Voltar");
 
-        if (!lerLinha("Opcao: ", opcao, sizeof opcao)) {
-            if (feof(stdin)) {
-                putchar('\n');
-                return EXIT_SUCCESS;
-            }
-            continue;
+        if (!lerEntrada("Opcao: ", opcao, TAMANHO_ENTRADA)) {
+            return;
         }
 
         if (strcmp(opcao, "1") == 0) {
-            menuBuscar();
+            inserirNovoAluno();
         } else if (strcmp(opcao, "2") == 0) {
-            User usuario = {0};
-
-            puts("\n--- Criar usuario ---");
-            if (lerLinha("Matricula: ", usuario.matricula, sizeof usuario.matricula) &&
-                lerLinhaDinamica("Nome: ", &usuario.nome) &&
-                lerLinhaDinamica("Curso: ", &usuario.curso)) {
-                int resultado = criarUser(usuario);
-                if (resultado == 1) {
-                    puts("Usuario criado com sucesso!");
-                } else if (resultado == 0) {
-                    puts("Ja existe um usuario com essa matricula.");
-                } else {
-                    puts("Nao foi possivel gravar o usuario.");
-                }
-            }
-            free(usuario.nome);
-            free(usuario.curso);
+            buscarAlunoNome();
         } else if (strcmp(opcao, "3") == 0) {
-            excluirUsuario();
+            buscarAlunoMatricula();
         } else if (strcmp(opcao, "4") == 0) {
-            menuBuscarLivro();
-        } else if (strcmp(opcao, "5") == 0) {
-            cadastrarLivro();
-        } else if (strcmp(opcao, "6") == 0) {
+            excluirAluno();
+        } else if (strcmp(opcao, "0") == 0) {
+            return;
+        } else {
+            puts("Opcao invalida.");
+        }
+    }
+}
+
+/* Coleta os campos do livro, valida a quantidade e solicita sua insercao no CSV. */
+static void inserirNovoLivro(void) {
+    char codigo[TAMANHO_ENTRADA];
+    char titulo[TAMANHO_ENTRADA];
+    char autor[TAMANHO_ENTRADA];
+    char quantidadeTexto[TAMANHO_ENTRADA];
+    Livro livro;
+    int resultado;
+
+    if (!lerEntrada("Codigo: ", codigo, TAMANHO_ENTRADA)
+        || !lerEntrada("Titulo: ", titulo, TAMANHO_ENTRADA)
+        || !lerEntrada("Autor: ", autor, TAMANHO_ENTRADA)
+        || !lerEntrada(
+            "Quantidade: ",
+            quantidadeTexto,
+            TAMANHO_ENTRADA
+        )) {
+        puts("Cadastro cancelado.");
+        return;
+    }
+
+    if (!converterQuantidade(quantidadeTexto, &livro.quantidade)) {
+        puts("Quantidade invalida.");
+        return;
+    }
+
+    livro.codigo = codigo;
+    livro.titulo = titulo;
+    livro.autor = autor;
+    resultado = inserirLivro(&livro);
+
+    if (resultado == 1) {
+        puts("Livro inserido com sucesso.");
+    } else if (resultado == 0) {
+        puts("Nao foi possivel inserir o livro: o codigo ja existe.");
+    } else {
+        puts("Nao foi possivel inserir o livro.");
+    }
+}
+
+/* Solicita um titulo e apresenta todos os livros correspondentes. */
+static void buscarLivroTitulo(void) {
+    char titulo[TAMANHO_ENTRADA];
+    int resultado;
+
+    if (!lerEntrada("Titulo: ", titulo, TAMANHO_ENTRADA)) {
+        return;
+    }
+
+    resultado = buscarLivroPorTitulo(titulo);
+    if (resultado == 0) {
+        puts("Nenhum livro encontrado.");
+    } else if (resultado < 0) {
+        puts("Nao foi possivel buscar os livros.");
+    }
+}
+
+// Solicita um autor e apresenta todos os livros correspondentes.
+static void buscarLivroAutor(void) {
+    char autor[TAMANHO_ENTRADA];
+    int resultado;
+
+    if (!lerEntrada("Autor: ", autor, TAMANHO_ENTRADA)) {
+        return;
+    }
+
+    resultado = buscarLivroPorAutor(autor);
+    if (resultado == 0) {
+        puts("Nenhum livro encontrado.");
+    } else if (resultado < 0) {
+        puts("Nao foi possivel buscar os livros.");
+    }
+}
+
+// Solicita um codigo e informa o resultado da remocao do livro.
+static void excluirLivro(void) {
+    char codigo[TAMANHO_ENTRADA];
+    int resultado;
+
+    if (!lerEntrada("Codigo: ", codigo, TAMANHO_ENTRADA)) {
+        return;
+    }
+
+    resultado = removerLivro(codigo);
+    if (resultado == 1) {
+        puts("Livro removido com sucesso.");
+    } else if (resultado == 0) {
+        puts("Livro nao encontrado.");
+    } else {
+        puts("Nao foi possivel remover o livro.");
+    }
+}
+
+/* Exibe as operacoes de livro e direciona a opcao escolhida para a funcao adequada. */
+static void menuLivros(void) {
+    char opcao[TAMANHO_ENTRADA];
+
+    while (1) {
+        puts("\n--- LIVROS ---");
+        puts("1 - Inserir");
+        puts("2 - Buscar por titulo");
+        puts("3 - Buscar por autor");
+        puts("4 - Remover");
+        puts("0 - Voltar");
+
+        if (!lerEntrada("Opcao: ", opcao, TAMANHO_ENTRADA)) {
+            return;
+        }
+
+        if (strcmp(opcao, "1") == 0) {
+            inserirNovoLivro();
+        } else if (strcmp(opcao, "2") == 0) {
+            buscarLivroTitulo();
+        } else if (strcmp(opcao, "3") == 0) {
+            buscarLivroAutor();
+        } else if (strcmp(opcao, "4") == 0) {
             excluirLivro();
         } else if (strcmp(opcao, "0") == 0) {
-            return EXIT_SUCCESS;
+            return;
+        } else {
+            puts("Opcao invalida.");
+        }
+    }
+}
+
+/* Coleta os identificadores e a data para registrar um novo emprestimo. */
+static void registrarNovoEmprestimo(void) {
+    char matricula[TAMANHO_ENTRADA];
+    char codigo[TAMANHO_ENTRADA];
+    char data[TAMANHO_ENTRADA];
+    int resultado;
+
+    if (!lerEntrada("Matricula do aluno: ", matricula, TAMANHO_ENTRADA)
+        || !lerEntrada("Codigo do livro: ", codigo, TAMANHO_ENTRADA)
+        || !lerEntrada("Data do emprestimo: ", data, TAMANHO_ENTRADA)) {
+        puts("Registro cancelado.");
+        return;
+    }
+
+    resultado = registrarEmprestimo(matricula, codigo, data);
+    if (resultado == 1) {
+        puts("Emprestimo registrado com sucesso.");
+    } else if (resultado == 0) {
+        puts("Aluno nao encontrado.");
+    } else if (resultado == -2) {
+        puts("Livro nao encontrado.");
+    } else {
+        puts("Nao foi possivel registrar o emprestimo.");
+    }
+}
+
+/* Mantem o menu principal ativo e executa as operacoes escolhidas pelo usuario. */
+int main(void) {
+    char opcao[TAMANHO_ENTRADA];
+
+    while (1) {
+        int resultado;
+
+        puts("\n===== BIBLIOTECA =====");
+        puts("1 - Alunos");
+        puts("2 - Livros");
+        puts("3 - Registrar emprestimo");
+        puts("4 - Listar emprestimos");
+        puts("0 - Sair");
+
+        if (!lerEntrada("Opcao: ", opcao, TAMANHO_ENTRADA)) {
+            return 0;
+        }
+
+        if (strcmp(opcao, "1") == 0) {
+            menuAlunos();
+        } else if (strcmp(opcao, "2") == 0) {
+            menuLivros();
+        } else if (strcmp(opcao, "3") == 0) {
+            registrarNovoEmprestimo();
+        } else if (strcmp(opcao, "4") == 0) {
+            resultado = listarEmprestimos();
+            if (resultado == 0) {
+                puts("Nenhum emprestimo registrado.");
+            } else if (resultado < 0) {
+                puts("Nao foi possivel listar os emprestimos.");
+            }
+        } else if (strcmp(opcao, "0") == 0) {
+            return 0;
         } else {
             puts("Opcao invalida.");
         }
